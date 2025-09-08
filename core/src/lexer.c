@@ -5,8 +5,6 @@
 #include <string.h>
 #include <stdio.h>
 
-// ========= Types =========
-
 typedef struct safe_str {
     size_t size;
     char string[];
@@ -19,6 +17,7 @@ typedef enum {
     MUL_OP,
     MINUS_OP,
     PLUS_OP,
+	QUOTE_OP,
     WORD,
     UNKNOWN
 } kinds;
@@ -30,9 +29,6 @@ typedef struct token {
     size_t    depth;
     size_t    sexprid;
 } token;
-
-
-// ========= Helpers =========
 
 static safe_str* make_safe_str(const char* start, size_t len) {
     safe_str* s = (safe_str*)malloc(sizeof(safe_str) + len + 1);
@@ -51,6 +47,34 @@ void free_tokens(token* toks, size_t count) {
     free(toks);
 }
 
+/**
+ * @brief Classify a one char str into a know member of the kinds enum.
+ * 
+ * @details this function analyze the given string and transforms it into the
+ *			corrisponding operator or separator.
+ *
+ * @param[in] s Un puntatore a una struttura `safe_str` che contiene la stringa
+ *              da classificare. La funzione è sicura per puntatori NULL e
+ *              stringhe vuote.
+ * 
+ * @return one of the enum `kinds` rapresent the token value.
+ * @retval LEFT_PAREN  "(".
+ * @retval RIGHT_PAREN  ")".
+ * @retval DIV_OP  "/".
+ * @retval MUL_OP  "*".
+ * @retval MINUS_OP "-".
+ * @retval PLUS_OP "+".
+ * @retval UNKNOWN  NULL.
+ *
+ * @note This function manages only single char tokens because all the function
+ *		 recognition and type system will be build in the semantic part of the 
+ *       program to allow a more dynamic nature, for creating more optimized
+ *       config files.
+ *       
+ * 
+ * @see tokenize()
+ * @see kinds
+ */
 static kinds classify_token(const safe_str* s) {
     if (!s || s->size == 0) return UNKNOWN;
 
@@ -70,11 +94,37 @@ static kinds classify_token(const safe_str* s) {
 }
 
 
-// ========= Lexer =========
-//
-// Returns a heap-allocated array of tokens and writes the number of tokens
-// to out_count. Caller must free with free_tokens(tokens, count).
-//
+/**
+ * @brief Performs lexical analysis on a source code string, breaking it into a sequence of tokens.
+ *
+ * @details This function iterates through the input character stream (`program_text`)
+ *          and transforms it into an array of `token` structures. It recognizes basic
+ *          Lisp-like elements such as parentheses, simple operators, and words (symbols).
+ *          Whitespace is ignored. Each generated token is tagged with metadata, including
+ *          its position, nesting depth, and the ID of its parent S-expression.
+ *
+ * @param[in]  program_text        The raw source code to be tokenized.
+ * @param[in]  program_length      The length of the `program_text` string.
+ * @param[out] **out_count**       A pointer to a size_t variable that will be populated with the
+ *                                 number of tokens generated. On success, this is set to the token count.
+ *                                 On failure, it is set to 0.
+ *
+ * @return On success, returns a pointer to a dynamically allocated array of `token` structures.
+ *         On failure (e.g., NULL input or out of memory), returns `NULL`.
+ *
+ * @warning The caller is responsible for freeing the memory allocated for the returned token array.
+ *          Furthermore, the `lexeme` field of each `token` in the array (a `safe_str*`) must also
+ *          be individually freed to prevent memory leaks.
+ *
+ * @note This function handles out-of-memory conditions gracefully by cleaning up any partially
+ *       allocated resources before returning `NULL`. The internal S-expression stack management
+ *       (PUSH_SEXPR, POP_SEXPR) is an implementation detail for associating tokens with their
+ *       containing list structure.
+ *
+ * @see token
+ * @see classify_token()
+ * @see make_safe_str()
+ */
 token* lexer(const char* program_text, size_t program_length, size_t* out_count) {
     if (!program_text) {
         if (out_count) *out_count = 0;
@@ -161,6 +211,16 @@ token* lexer(const char* program_text, size_t program_length, size_t* out_count)
             continue;
         }
 
+		if (c == '\'') {
+			lex = make_safe_str(program_text + i, 1);
+    		if (!lex) goto oom;
+
+    		kind = QUOTE_OP;
+    		tokens[count++] = (token){ kind, lex, start, depth, sexprid };
+    		i++;
+    		continue;
+		}
+
         // WORD: alphabetic run
         if (isalpha(c)) {
             size_t j = i + 1;
@@ -200,78 +260,58 @@ oom:
     #undef POP_SEXPR
 }
 
-static const char* kind_name(kinds k) {
-    switch (k) {
-        case LEFT_PAREN:  return "LEFT_PAREN";
-        case RIGHT_PAREN: return "RIGHT_PAREN";
-        case DIV_OP:      return "DIV_OP";
-        case MUL_OP:      return "MUL_OP";
-        case MINUS_OP:    return "MINUS_OP";
-        case PLUS_OP:     return "PLUS_OP";
-        case WORD:        return "WORD";
-        default:          return "UNKNOWN";
-    }
-}
-
-
-// lexer tests
-// int main(void) {
-//    const char* path = "./test.lisp";
-//    FILE* f = fopen(path, "rb");
-//    if (!f) {
-//        perror("fopen");
-//        return 1;
-//    }
-//
-//    if (fseek(f, 0, SEEK_END) != 0) {
-//        perror("fseek");
-//        fclose(f);
-//        return 1;
-//    }
-//
-//    long len = ftell(f);
-//    if (len < 0) {
-//        perror("ftell");
-//        fclose(f);
-//        return 1;
-//    }
-//    if (fseek(f, 0, SEEK_SET) != 0) {
-//        perror("fseek");
-//        fclose(f);
-//        return 1;
-//    }
-//
-//    size_t size = (size_t)len;
-//    char* code = (char*)malloc(size + 1);
-//    if (!code) {
-//        perror("malloc");
-//        fclose(f);
-//        return 1;
-//    }
-//
-//    size_t nread = fread(code, 1, size, f);
-//    if (nread != size) {
-//        if (ferror(f)) {
-//            perror("fread");
-//            free(code);
-//            fclose(f);
-//            return 1;
-//        }
-//    }
-//    fclose(f);
-//
-//    code[nread] = '\0';
-//
-//    size_t count = 0;
-//    token* toks = lexer(code, nread, &count);
-//
-//    for (size_t i = 0; i < count; ++i) {
-//        printf("%zu: %-12s  lex=\"%s\"  span=%zu  depth=%zu  sexprid=%zu\n",
-//               i, kind_name(toks[i].kind), toks[i].lexeme->string,
-//               toks[i].span, toks[i].depth, toks[i].sexprid);
-//    }
-//
-//    free_tokens(toks, count);
-//    free(code);
-//    return 0;
-//}
+// const char* kind_to_string(kinds k) {
+//     switch (k) {
+//         case LEFT_PAREN:  return "LEFT_PAREN";
+//         case RIGHT_PAREN: return "RIGHT_PAREN";
+//         case DIV_OP:      return "DIV_OP";
+//         case MUL_OP:      return "MUL_OP";
+//         case MINUS_OP:    return "MINUS_OP";
+//         case PLUS_OP:     return "PLUS_OP";
+//         case WORD:        return "WORD";
+//         case UNKNOWN:     return "UNKNOWN";
+//         default:          return "INVALID_KIND";
+//     }
+// }
+// 
+// 
+// // --- TEST PRINCIPALE ---
+// int main (void){
+//     // 1. Definisci il programma di test
+// 	const char* program = "(+ foo '(* bar baz))";
+//     printf("Tokenizing: \"%s\"\n\n", program);
+// 
+//     // 2. Esegui il lexer
+//     size_t token_count = 0;
+//     token* tokens = lexer(program, strlen(program), &token_count);
+// 
+//     // 3. Controlla se il lexer ha avuto successo
+//     if (!tokens) {
+//         fprintf(stderr, "Lexer failed to process the input.\n");
+//         return 1;
+//     }
+// 
+//     // 4. Stampa i token in una tabella
+//     printf("Found %zu tokens:\n", token_count);
+//     printf("----------------------------------------------------------\n");
+//     printf("%-15s | %-10s | span | depth | sexprid\n", "Kind", "Lexeme");
+//     printf("----------------------------------------------------------\n");
+// 
+//     for (size_t i = 0; i < token_count; ++i) {
+//         token t = tokens[i];
+//         printf("%-15s | %-10s | %-4zu | %-5zu | %-7zu\n",
+//                kind_to_string(t.kind),
+//                t.lexeme->string,
+//                t.span,
+//                t.depth,
+//                t.sexprid);
+//     }
+//     printf("----------------------------------------------------------\n\n");
+// 
+//     // 5. Libera la memoria
+//     printf("Cleaning up memory...\n");
+//     free_tokens(tokens, token_count);
+//     printf("Done.\n");
+// 
+// 	return 0;
+// }
