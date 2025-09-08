@@ -1,34 +1,14 @@
+/**
+ * @file lexer.c
+ */
+
 #include <stdint.h>
 #include <stddef.h>
 #include <ctype.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
-
-typedef struct safe_str {
-    size_t size;
-    char string[];
-} safe_str;
-
-typedef enum {
-    LEFT_PAREN,
-    RIGHT_PAREN,
-    DIV_OP,
-    MUL_OP,
-    MINUS_OP,
-    PLUS_OP,
-	QUOTE_OP,
-    WORD,
-    UNKNOWN
-} kinds;
-
-typedef struct token {
-    kinds     kind;
-    safe_str* lexeme;
-    size_t    span;
-    size_t    depth;
-    size_t    sexprid;
-} token;
+#include "lexer.h"
 
 static safe_str* make_safe_str(const char* start, size_t len) {
     safe_str* s = (safe_str*)malloc(sizeof(safe_str) + len + 1);
@@ -221,6 +201,20 @@ token* lexer(const char* program_text, size_t program_length, size_t* out_count)
     		continue;
 		}
 
+        if (isdigit(c)) {
+            size_t j = i + 1;
+            while (j < program_length && isdigit((unsigned char)program_text[j])) {
+                j++;
+            }
+            lex = make_safe_str(program_text + i, j - i);
+            if (!lex) goto oom;
+
+            kind = WORD;
+            tokens[count++] = (token){ kind, lex, start, depth, sexprid };
+            i = j;
+            continue;
+        }
+
         // WORD: alphabetic run
         if (isalpha(c)) {
             size_t j = i + 1;
@@ -278,7 +272,7 @@ oom:
 // // --- TEST PRINCIPALE ---
 // int main (void){
 //     // 1. Definisci il programma di test
-// 	const char* program = "(+ foo '(* bar baz))";
+// 	const char* program = "(+ 10 (multiply 2 3))";
 //     printf("Tokenizing: \"%s\"\n\n", program);
 // 
 //     // 2. Esegui il lexer

@@ -19,6 +19,7 @@ typedef enum {
     MUL_OP,
     MINUS_OP,
     PLUS_OP,
+	QUOTE_OP,
     WORD,
     UNKNOWN
 } kinds;

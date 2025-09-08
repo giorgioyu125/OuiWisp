@@ -12,5 +12,5 @@ sources = [
 executable('OuiWisp', 
   sources,
   install: true,
-  c_args: ['-O3', '-pg']
+  c_args: ['-g3']
 )
