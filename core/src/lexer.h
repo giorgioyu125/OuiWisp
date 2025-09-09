@@ -1,5 +1,5 @@
-#ifndef OUIWISP_LEXER_H
-#define OUIWISP_LEXER_H
+#ifndef LEXER_H
+#define LEXER_H
 
 #include <stddef.h>
 
