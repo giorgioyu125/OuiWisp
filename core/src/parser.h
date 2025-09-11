@@ -11,6 +11,9 @@
 #include <stdbool.h>
 #include <stdarg.h>
 #include "lexer.h"
+#include "ggc.h"
+
+extern Node* g_nil;
 
 /* -------------------- base AST -------------------- */
 /*
@@ -32,7 +35,7 @@ typedef struct Node {
 	union {
 		struct { struct Node* car; struct Node* cdr; } cons;
 		int64_t i;
-		struct { const char* ptr; size_t len; } str;
+		struct { size_t len; const char* ptr; } str;
 		struct Symbol* sym;
 	} v;
 }Node;
@@ -81,6 +84,12 @@ static inline uint32_t arity_pack(uint16_t min, uint16_t max) {
 }
 static inline uint16_t arity_min(uint32_t a) { return (uint16_t)(a & 0xFFFFu); }
 static inline uint16_t arity_max(uint32_t a) { return (uint16_t)(a >> 16); }
+
+typedef enum gc_colors{
+	GC_COLOR_WHITE,
+	GC_COLOR_GRAY,
+	GC_COLOR_BLACK
+} gc_colors;
 
 /* GCInfo pack: [resvd:8 | color:8 | age:8 | gen:8] */
 static inline uint32_t gcinfo_pack(uint8_t gen, uint8_t age, uint8_t color) {
@@ -179,35 +188,43 @@ static inline void clr_flag(uint32_t* flags, uint32_t bit){ *flags &= ~bit; }
  */
 typedef struct Symbol {
 	/* Core identification data */
-	const char* name;   
+	const char* name;
 	/* @brief The name of the symbol (as a string). */
-	size_t len;         
-	/* @brief The length of the name. */
+
+	size_t len;
+	/* @brief The length of the name. */ 
+
 	uint32_t hash;      
 	/* @brief Pre-calculated hash of the name for fast lookups. */
 
-	/* Semantic metadata */
+	/* Semantic metadata */ 
+
 	TypeTag  type;      
-	/* @brief The high-level type of the symbol. @see TypeTag */
+	/* @brief The high-level type of the symbol. @see TypeTag */ 
+
 	EvalKind eval;      
 	/* @brief How the evaluator should handle this symbol. @see EvalKind */
+
 	uint32_t flags;     
 	/* @brief A bitmask of additional properties. @see flags */
+
 	uint32_t arity;     
 	/* @brief Packed min/max arity (for functions/macros). */
 
 	/* Pointers to data and code */
 	void*    value_ptr; 
+
 	/* @brief Pointer to the value/payload (usually on the heap).
 	 * @warning if you want to evaluate this function you NEED to cast it first 
 	 *			to the desired pointer function type. If is_native is true use 
 	 *			(*NativeFn) as cast and you are done!*/
 	generic_fn* entry_ptr;
 	bool is_native;
-	/* @brief Pointer to executable code (NativeFn, AST, or bytecode). */
-	Env*     env_ptr;   
-	/* @brief Pointer to the closure environment (for functions). */
 
+	/* @brief Pointer to executable code (NativeFn, AST, or bytecode). */
+	Env*     env_ptr;
+
+	/* @brief Pointer to the closure environment (for functions). */
 	/* Runtime metadata */
 	int32_t  stack_slot;
 	/* @brief Index on the local stack (-1 if not a local variable). */
@@ -222,21 +239,33 @@ typedef struct Symbol {
  *		  exists only once. This process is known as interning.
  */
 typedef struct SymTab {
-  Symbol** data; ///< Array of symbols.
-  size_t len;    ///< Number of symbol in the table.
-  size_t cap;    ///< Capacity allocated in the table.
+	Symbol** data; ///< Array of symbols.
+	size_t len;    ///< Number of symbol in the table.
+	size_t cap;    ///< Capacity allocated in the table.
+	
+	Gc* gc;
 } SymTab;
 
-static inline Node* make_int(int64_t i) {
-	Node* n = (Node*)malloc(sizeof(Node)); if (!n) abort();
+static inline Node* make_int(Gc* gc, SymTab* symtab, int64_t i) {
+	Node* n = (Node*)ggc_alloc(gc, symtab, sizeof(Node));
+	if (!n) return g_nil;
 	n->tag = N_INT; n->v.i = i; return n;
 }
 
-static inline Node* make_string_copy(const char* s, size_t len) {
-	Node* n = (Node*)malloc(sizeof(Node)); if (!n) abort();
-	char* copy = (char*)malloc(len + 1); if (!copy) abort();
-	memcpy(copy, s, len); copy[len] = '\0';
-	n->tag = N_STRING; n->v.str.ptr = copy; n->v.str.len = len; return n;
+static inline Node* make_string(Gc* gc,  SymTab* symtab, const char* s, size_t len) {
+    size_t total_size = sizeof(Node) + len + 1;
+    Node* n = (Node*)ggc_alloc(gc, symtab, total_size);
+    if (!n) return g_nil;
+    
+    n->tag = N_STRING;
+    
+    char* copy = (char*)n + sizeof(Node);
+    memcpy(copy, s, len);
+    copy[len] = '\0';
+    
+    n->v.str.ptr = copy;
+    n->v.str.len = len;
+    return n;
 }
 
 /* -------------------- Hashing and Symbol Allocation -------------------- */
@@ -279,38 +308,30 @@ void sym_reset_meta(Symbol* sym);
 void free_symtab(SymTab* symtab);
 
 /**
- * @brief Allocates and initializes a new symbol.
- * @details The symbol's name is copied into a new memory location.
- * @param s Pointer to the character string for the symbol's name.
- * @param n The length of the name.
- * @param h The pre-calculated hash of the name.
- * @return A pointer to the newly created symbol.
+ * @brief Allocates and initializes a new symbol using GC.
+ * @details The symbol's name is copied into old generation memory.
+ * @param gc Garbage collector context
+ * @param s Pointer to the character string for the symbol's name
+ * @param n The length of the name
+ * @param h The pre-calculated hash of the name
+ * @return A pointer to the newly created symbol, or NULL on failure
  */
-Symbol* symbol_new(const char* s, size_t n, uint32_t h);
+Symbol* symbol_new(Gc* gc, const char* s, size_t n, uint32_t h);
 
-/* lookup/intern lineare (vettore dinamico) */
-
-Symbol* symtab_intern(SymTab* st, const char* s, size_t n);
-
-/*
- * @brief Allocates a node and returns the corrisponding cons-cell.
- *
- * @warning This memory needs to be freed by the caller (the GC probably).
- *			Memory leak are possible.
- *
- * @note The functions below called make_int, make_string_copy, make_symbol are all the "same" as this
- *		 just for different data types.
+/**
+ * @brief Looks up or interns a symbol in the symbol table.
+ * @details If the symbol exists, returns it. Otherwise creates a new one.
+ * @param gc Garbage collector context
+ * @param st Pointer to the symbol table
+ * @param s Pointer to the character string for the symbol's name
+ * @param n The length of the name
+ * @return A pointer to the symbol (existing or newly created)
  */
-static inline Node* cons(Node* car, Node* cdr) {
-	Node* n = (Node*)malloc(sizeof(Node)); if (!n) abort(); ///> Node allocation
-	n->tag = N_CONS; n->v.cons.car = car; n->v.cons.cdr = cdr; return n; ///> Node initialization
-}
+Symbol* symtab_intern(Gc* gc, SymTab* st, const char* s, size_t n);
 
-static inline Node* make_symbol(SymTab* st, const char* s, size_t len) {
-	Node* n = (Node*)malloc(sizeof(Node)); if (!n) abort();
-	Symbol* sym = symtab_intern(st, s, len);
-	n->tag = N_SYMBOL; n->v.sym = sym; return n;
-}
+
+Node* cons(Gc* gc, SymTab* symtab, Node* car, Node* cdr);
+Node* make_symbol(Gc* gc, SymTab* symtab, const char* s, size_t len);
 
 
 /* -------------------- Compact Setter for columns -------------------- */
@@ -413,8 +434,6 @@ static inline void sym_clear_flags(Symbol* s, uint32_t fl) { s->flags &= ~fl; }
 
 /* ------------------------- Global AST --------------------------- */
 
-extern Node* g_nil;
-
 typedef struct ast{
 	token* lexer_tokens;
     const char* source_name;
@@ -432,6 +451,8 @@ typedef struct Parser {
 
 	token* current;
 	token* end; 
+
+	Gc* gc;
 } Parser;
 
 #endif /* PARSER_H */

@@ -6,7 +6,8 @@ project('OuiWisp', 'c',
 
 sources = [
   'src/lexer.c',
-  'src/parser.c'
+  'src/parser.c',
+  'src/ggc.c'
 ]
 
 executable('OuiWisp', 

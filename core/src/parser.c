@@ -61,44 +61,74 @@ void free_symtab(SymTab* symtab) {
     symtab->cap = 0;
 }
 
-Symbol* symbol_new(const char* s, size_t n, uint32_t h) {
-	Symbol* sym = (Symbol*)malloc(sizeof(Symbol));
-	if (!sym) abort();
-	char* name = (char*)malloc(n + 1);
-	if (!name) abort();
+Symbol* symbol_new(Gc* gc, const char* s, size_t n, uint32_t h) {
+    size_t total_size = sizeof(Symbol) + n + 1;
+    Symbol* sym = (Symbol*) ggc_alloc_old(&gc->heap->old_gen, total_size);
+    if (!sym) return NULL;
 
-	memcpy(name, s, n); 
-	name[n] = '\0';
+    char* name = (char*)sym + sizeof(Symbol);
+    memcpy(name, s, n);
+    name[n] = '\0';
 
-	sym->name = name; 
-	sym->len = n; 
-	sym->hash = h;
+    sym->name = name;
+    sym->len  = n;
+    sym->hash = h;
 
-	sym_reset_meta(sym);
-	return sym;
+    sym_reset_meta(sym);
+    sym->gcinfo = gcinfo_pack(1, 0, 0);
+
+    return sym;
 }
+
+
+Symbol* symtab_intern(Gc* gc, SymTab* st, const char* s, size_t n) {
+    uint32_t h = hash(s, n);
+    
+    for (size_t i = 0; i < st->len; ++i) {
+        Symbol* sym = st->data[i];
+        if (sym->hash == h && sym->len == n && 
+            memcmp(sym->name, s, n) == 0)
+            return sym;
+    }
+    
+    Symbol* sym = symbol_new(gc, s, n, h);
+    if (!sym) return NULL;
+    
+    if (st->len == st->cap) symtab_grow(st, st->len + 1);
+    st->data[st->len++] = sym;
+    
+    return sym;
+}
+
+/*
+ * @brief Allocates a node and returns the corrisponding cons-cell.
+ *
+ * @warning This memory needs to be freed by the caller (the GC probably).
+ *			Memory leak are possible.
+ *
+ * @note The functions below called make_int, make_string_copy, make_symbol are all the "same" as this
+ *		 just for different data types.
+ */
+Node* cons(Gc* gc, SymTab* symtab, Node* car, Node* cdr) {
+    Node* n = (Node*)ggc_alloc(gc, symtab, sizeof(Node));
+    if (!n) return g_nil;
+    n->tag = N_CONS; 
+    n->v.cons.car = car; 
+    n->v.cons.cdr = cdr; 
+    return n;
+}
+
+Node* make_symbol(Gc* gc, SymTab* symtab, const char* s, size_t len) {
+    Node* n = (Node*)ggc_alloc(gc, symtab, sizeof(Node));
+    if (!n) return g_nil;
+    Symbol* sym = symtab_intern(gc, symtab, s, len);
+    n->tag = N_SYMBOL; 
+    n->v.sym = sym; 
+    return n;
+}
+
 
 /* lookup/intern  (dynamic vector) */
-
-Symbol* symtab_intern(SymTab* st, const char* s, size_t n) {
-	uint32_t h = hash(s, n);
-
-	for (size_t i = 0; i < st->len; ++i) {
-		Symbol* sym = st->data[i];
-		if (sym->hash == h 
-			&& sym->len == n 
-			&& memcmp(sym->name, s, n) == 0)
-		return sym;
-	}
-
-	Symbol* sym = symbol_new(s, n, h);
-
-	if (st->len == st->cap) symtab_grow(st, st->len + 1);
-	st->data[st->len++] = sym;
-
-	return sym;
-}
-
 
 
 static Node s_nil = { .tag = N_NIL };
@@ -127,11 +157,6 @@ static Node* parse_form(Parser* p);
 static Node* parse_list(Parser* p);
 static Node* parse_atom(Parser* p);
 static Node* parse_quote_like(Parser* p, const char* sym, size_t len);
-
-// static Node* parse_expr(Parser* p) {
-// 	if (!p || !p->st) abort();
-// 	return parse_form(p);
-// }
 
 // Core Dispatcher (Don't call from parse_list -> parse_expr, use this)
 static Node* parse_form(Parser* p) {
@@ -184,7 +209,7 @@ static Node* parse_list(Parser* p) {
 		}
 
 		Node* element = parse_form(p);
-		Node* cell = cons(element, g_nil);
+		Node* cell = cons(p->gc, p->st, element, g_nil);
 		*cur = cell;
 		cur = &cell->v.cons.cdr;
 	}
@@ -231,7 +256,7 @@ static Node* parse_atom(Parser* p) {
 		case UNKNOWN: {
 			const char* s = t.lexeme ? t.lexeme->string : "";
 			size_t len = t.lexeme ? t.lexeme->size : 0;
-			return make_symbol(p->st, s, len);
+			return make_symbol(p->gc, p->st, s, len);
 		}
 
 
@@ -243,7 +268,7 @@ static Node* parse_atom(Parser* p) {
 				parser_set_error(p, "Identifier must be PascalCase (e.g., FooBar)");
 				return g_nil;
 			}
-			return make_symbol(p->st, s, len);
+			return make_symbol(p->gc, p->st, s, len);
 		}
 
 		case LEFT_PAREN:
@@ -275,12 +300,12 @@ static Node* parse_quote_like(Parser* p, const char* sym, size_t len) {
 	}
 
 	Node* datum = parse_form(p);
-	Node* sym_node = make_symbol(p->st, sym, len);
-	return cons(sym_node, cons(datum, g_nil));
+	Node* sym_node = make_symbol(p->gc, p->st, sym, len);
+	return cons(p->gc, p->st, sym_node, cons(p->gc, p->st, datum, sym_node));
 }
 
 Node* parse(Parser* p) {
-	if (!p || !p->st) abort();
+	if (!p || !p->st) return g_nil;
 
 	Node* head = g_nil;
 	Node** tail_ref = &head;
@@ -293,7 +318,7 @@ Node* parse(Parser* p) {
 		}
 
 		Node* e = parse_form(p);
-		Node* cell = cons(e, g_nil);
+		Node* cell = cons(p->gc, p->st, e, g_nil);
 		*tail_ref = cell;
 		tail_ref = &cell->v.cons.cdr;
 
