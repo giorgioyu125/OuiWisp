@@ -90,11 +90,6 @@ After this, lets showcase the AST constructor algorithm:
        ) )
 
 
-
-
-
-
-
 ### Symbolic Table
 
 We are not yet discussing what is a *Symbol* in Lisp and Symploke formally but we can says that a symbol is:
