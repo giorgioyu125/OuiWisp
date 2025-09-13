@@ -7,11 +7,12 @@ project('OuiWisp', 'c',
 sources = [
   'src/lexer.c',
   'src/parser.c',
-  'src/ggc.c'
+  'src/ggc.c',
+  'src/main.c'
 ]
 
 executable('OuiWisp', 
   sources,
   install: true,
-  c_args: ['-g3']
+  c_args: ['-ggdb', ]
 )

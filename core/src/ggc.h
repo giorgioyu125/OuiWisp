@@ -204,7 +204,7 @@ void ggc_add_root(Gc* gc, Node** root);
  * @param gc Garbage collector context
  * @param root Pointer to the root object pointer
  */
-void ggc_remove_root(Gc* gc, Node** root);
+void ggc_remove_root(Gc* gc, void* root_void);
 
 
 /* -------------------- Utility Functions -------------------- */

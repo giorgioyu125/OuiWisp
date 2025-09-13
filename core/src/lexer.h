@@ -3,10 +3,6 @@
 
 #include <stddef.h>
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 typedef struct safe_str {
     size_t size;
     char   string[];
@@ -27,16 +23,12 @@ typedef enum {
 typedef struct token {
     kinds     kind;
     safe_str* lexeme;
-    size_t    span;    /* posizione/offset nel sorgente */
-    size_t    depth;   /* profondità di annidamento */
-    size_t    sexprid; /* id della s-expr corrente */
+    size_t    span;    /* position or offset position form orgin */
+    size_t    depth;   /* nesting depth */
+    size_t    sexprid; /* current s-expr unique id */
 } token;
 
 token* lexer(const char* program_text, size_t program_length, size_t* out_count);
 void free_tokens(token* toks, size_t count);
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif /* OUIWISP_LEXER_H */

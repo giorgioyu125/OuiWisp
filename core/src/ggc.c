@@ -241,11 +241,12 @@ void ggc_add_root(Gc* gc, Node** root) {
  * @param gc Garbage collector context  
  * @param root Pointer to the root object pointer
  */
-void ggc_remove_root(Gc* gc, Node** root) {
-    if (!gc || !gc->vm_stack || !root) return;
-    vec_del(&gc->vm_stack, &root);
-}
 
+void ggc_remove_root(Gc* gc, void* root_void) {
+    if (!gc || !gc->vm_stack || !root_void) return;
+    Node** root = (Node**)root_void;
+    vec_del(&gc->vm_stack, root);
+}
 
 
 /**

@@ -194,15 +194,14 @@ typedef struct Symbol {
 	size_t len;
 	/* @brief The length of the name. */ 
 
-	uint32_t hash;      
+	uint32_t hash;
 	/* @brief Pre-calculated hash of the name for fast lookups. */
 
 	/* Semantic metadata */ 
-
-	TypeTag  type;      
+	TypeTag  type;
 	/* @brief The high-level type of the symbol. @see TypeTag */ 
 
-	EvalKind eval;      
+	EvalKind eval;
 	/* @brief How the evaluator should handle this symbol. @see EvalKind */
 
 	uint32_t flags;     
@@ -211,21 +210,22 @@ typedef struct Symbol {
 	uint32_t arity;     
 	/* @brief Packed min/max arity (for functions/macros). */
 
-	/* Pointers to data and code */
 	void*    value_ptr; 
+	/* @brief Pointers to data and code */
 
+	generic_fn* entry_ptr;
 	/* @brief Pointer to the value/payload (usually on the heap).
 	 * @warning if you want to evaluate this function you NEED to cast it first 
 	 *			to the desired pointer function type. If is_native is true use 
 	 *			(*NativeFn) as cast and you are done!*/
-	generic_fn* entry_ptr;
+
 	bool is_native;
-
 	/* @brief Pointer to executable code (NativeFn, AST, or bytecode). */
-	Env*     env_ptr;
 
+	Env*     env_ptr;
 	/* @brief Pointer to the closure environment (for functions). */
 	/* Runtime metadata */
+
 	int32_t  stack_slot;
 	/* @brief Index on the local stack (-1 if not a local variable). */
 	uint32_t gcinfo;    
@@ -436,13 +436,13 @@ static inline void sym_clear_flags(Symbol* s, uint32_t fl) { s->flags &= ~fl; }
 
 typedef struct ast{
 	token* lexer_tokens;
-    const char* source_name;
+	const char* source_name;
 	
 	Node* head;
-    
-    bool has_error;
-    const char* error_message;
-    int error_line;
+	
+	bool has_error;
+	const char* error_message;
+	int error_line;
 } ast;
 
 typedef struct Parser { 
@@ -454,5 +454,9 @@ typedef struct Parser {
 
 	Gc* gc;
 } Parser;
+
+/* ----------------------- MAIN API ------------------------ */ 
+
+Node* parse(Parser* p);
 
 #endif /* PARSER_H */

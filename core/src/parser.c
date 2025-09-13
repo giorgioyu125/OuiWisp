@@ -5,7 +5,6 @@
 #include <stdint.h>
 #include <string.h>
 #include <stdbool.h>
-#include <ctype.h>
 #include <stdarg.h>
 #include "lexer.h"
 #include "parser.h"
@@ -219,21 +218,6 @@ static Node* parse_list(Parser* p) {
 	return g_nil;
 }
 
-static bool is_pascal_ident(const char* s, size_t n) {
-    if (!s || n == 0) {
-        return false;
-    }
-    if (!isupper((unsigned char)s[0])) {
-        return false;
-    }
-    for (size_t i = 1; i < n; ++i) {
-        if (!isalnum((unsigned char)s[i])) {
-            return false;
-        }
-    }
-    return true;
-}
-
 static Node* parse_atom(Parser* p) {
 	if (!p || !p->st) abort();
 
@@ -264,10 +248,6 @@ static Node* parse_atom(Parser* p) {
 			const char* s = t.lexeme ? t.lexeme->string : "";
 			size_t len = t.lexeme ? t.lexeme->size : 0;
 
-			if (!is_pascal_ident(s, len)) {
-				parser_set_error(p, "Identifier must be PascalCase (e.g., FooBar)");
-				return g_nil;
-			}
 			return make_symbol(p->gc, p->st, s, len);
 		}
 
